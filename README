@@ -1,1 +1,2 @@
 simple propagation programme for testing implementation details
+usage: ./crlprop <energy/keV> <distance1/m> <f/m> <distance2/m>
