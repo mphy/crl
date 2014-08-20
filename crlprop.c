@@ -329,7 +329,7 @@ cleanup:
     return ret;
 }
 
-/* propagate field through CRL device (phase-shift in real space)*/
+/* propagate field through CRL device (apply phase-shift in real space)*/
 int crl_inside(struct insidecrl* arg){
     int ret = 0;
 
@@ -345,9 +345,6 @@ int crl_inside(struct insidecrl* arg){
     double* w;    				   //array holdind lens profile values
     double delta;
     double phshift;
-
-    fftw_complex* in, *out;
-    fftw_plan p;
 
     struct field field;
     field.size=NULL;
@@ -390,52 +387,15 @@ int crl_inside(struct insidecrl* arg){
     y=-0.5*L+delta*i;
     w[i]=0.5*y*y/R;
     phshift=fmod(2.*M_PI*deltafactor*2.*w[i]/wvl,2*M_PI);
-    //phshift=fmod(M_PI,2*M_PI);
     field.values[i] *= cexp(I*phshift);
-    //if (i<10) printf("ph=%f \n", carg(field.values[i]));
-    //if (i<10) printf("shift=%f \n", phshift);
     }
 
-    in  = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * n);
-    out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * n);
-    p   = fftw_plan_dft_1d(n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
-
-    /* fftw  */
-    for (i=0; i<n; i++)
-    {
-    //!!!!!!Check details fftw3 with complex	
-    //in[i][0] = creal(field.values[i]);
-    //in[i][1] = cimag(field.values[i]);
-    //in[i] = creal(field.values[i])+I*cimag(field.values[i]);
-      in[i]=field.values[i];
-    }
-
-    //fftshift(in , components);
-    fftw_execute(p);
-    //fftshift(out, components);    NO SHIFTING IMPLEMENTED YET
-
-//Update field, apply phasefactors, normalise
-    for (i=0; i<(field.components); i++)
-    {
-    //	field.values[i] = out[i];
-    //	field.values[i] = out[i][0]+I*out[i][1];
-	//field.values[i]  = field.values[i]*exp(I*k*lense_spacing_x);
-	//field.values[i] = sqrt(factor)*spacing*constant*phase*field.values[i];
-    }
-    
     /* now save the crl field to a file */
     write_field_to_file(&field, "crl_plane.txt");
-
-    fftw_destroy_plan(p);
-    fftw_free(in);
-    fftw_free(out);
 
 cleanup:
     if (field.size)   free(field.size);   field.size=NULL;
     if (field.values) free(field.values); field.values=NULL;
-    //  if (field.dimensions) free(field.dimensions); field.dimensions=NULL;
-    //  if (field.components) free(field.components); field.components=NULL;
-    //  if (u) free(u); u=NULL;
     if (w) free(w); w=NULL;
     return ret;
 }
@@ -456,9 +416,12 @@ int crl_to_focus(struct c2f* arg){
     double delta;
     double deltaf;
     double complex quadratic;
+    double complex constphase;			   //constant phase
+    double complex normfactor;
 
     fftw_complex* in, *out;
     fftw_plan p;
+    fftw_complex val;
 
     struct field field;
     field.size=NULL;
@@ -498,21 +461,32 @@ int crl_to_focus(struct c2f* arg){
     p   = fftw_plan_dft_1d(n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
 
     /* fftw  */
-    for (i=0; i<n; i++)
+   for (i=0; i<n; i++)
     {
         y=-0.5*L+delta*i;
-        quadratic=cexp(-I*M_PI*y*y/(wvl*distance));
+        quadratic=cexp(I*M_PI*y*y/(wvl*distance));
 	in[i]=quadratic*field.values[i];
     }
 
-    //fftshift(in , components);
+    //fftexecute
     fftw_execute(p);
-
+    //fftshift
+    if (fftshift)
+    for (i=0; i<N/2; i++){
+    val=out[i];
+    out[i]=out[i+N/2];
+    out[i+N/2]=val;
+    }
+  
+    constphase = cexp(I*distance*2.*M_PI/wvl);
+    normfactor = 1./(I*wvl*distance);
+    
   for (i=0; i<n; i++)
     {
-        y=(-N/2+i)*deltaf*1./(wvl*distance);
-        quadratic=cexp(-I*M_PI*y*y/(wvl*distance));
-	field.values[i]=out[i]*quadratic*field.values[i];
+        y=(-N/2+i)*deltaf*wvl*distance;
+        quadratic=cexp(I*M_PI*y*y/(wvl*distance));
+	
+        field.values[i]=normfactor*constphase*quadratic*delta*out[i];
     }
     
     write_field_to_file(&field, "det_plane.txt");  
@@ -643,7 +617,8 @@ int write_field_to_file(struct field* field, const char* fname)
 (done)     * write field to FILE* f
      */
     for (i=0;i<n;i++){
-    fprintf(f, "%f %f %f \n", creal(field->values[i]), cimag(field->values[i]), carg(field->values[i])); 
+    //fprintf(f, "%f %f %f \n", creal(field->values[i]), cimag(field->values[i]), carg(field->values[i])); 
+    fprintf(f, "%f %f %f \n", creal(field->values[i]), cimag(field->values[i]), cabs(field->values[i])); 
     }
 
 cleanup:

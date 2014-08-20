@@ -9,6 +9,7 @@
 
 #define Nmin 1024
 #define delta_max 10e-6
+#define fftshift false
 
 /* some general structures to store parameters */
 
