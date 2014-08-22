@@ -35,7 +35,7 @@ int main(int argc, const char* argv[])
     parameters.crl.separation     =   10e-6; /* 10 µm */
     parameters.crl.number         =    1;
     parameters.crl.deltafactor    =   3.53e-6;
-    parameters.crl.R		  =  f_m*2.*parameters.crl.deltafactor;
+    parameters.crl.R		  =  f_m*2.*M_PI*parameters.crl.deltafactor;
 
     parameters.detector.distance  = distance2_m;
     parameters.detector.number    = 1000;
@@ -107,6 +107,8 @@ int print_parameters(struct parameters* para, FILE* f)
     fprintf(f, "aperture:      %8.2f mm\n",  para->crl.aperture*1e3);
     fprintf(f, "separation:    %8.2f µm\n",  para->crl.separation*1e6);
     fprintf(f, "offset:        %8.2f µm\n",  para->crl.offset*1e6);
+    fprintf(f, "deltafactor:   %8.2f µm\n",  para->crl.deltafactor*1e6);
+    fprintf(f, "radius R:      %8.2f µm\n",  para->crl.R*1e6);
     fprintf(f, "number/lenses: %5d\n",       para->crl.number);
     fprintf(f, "\n");
 
@@ -291,9 +293,8 @@ int source_to_crl(struct s2c* arg, double L)
     A=1;
     for (i=0;i<N;i++)
     {
-        dy=-L/2+i*delta+posy;
+        dy=-0.5*L+i*delta+posy;
 	ph=getPhase(wvl,dy,dz);
-       
     Re=A*cos(ph);
     Im=A*sin(ph);
     u[i]=Re+I*Im;    
@@ -337,7 +338,7 @@ int crl_inside(struct insidecrl* arg){
     double wvl=arg->xray.wavelength;		   //wavelength
     double L = arg->crl.aperture;      		   //aperture
     //double posy = arg->crl.offset;      	   //lens off-axis
-    double R = arg->crl.R;		      	   //radius
+    double R = arg->crl.R;		      	   //radius  
     double deltafactor = arg->crl.deltafactor;     //delta factor (phase shift)
     int i; 					   //counter
     int N=Nmin;					   //Number of points 
@@ -377,16 +378,14 @@ int crl_inside(struct insidecrl* arg){
     field.size[i]=N;
     }
     delta=L/N;
-    printf("Optimized delta= %e \n", delta);
-    printf("N= %d \n\n", N);
 
     /* calculate crl profile and apply phase shift */
     w = (double*) malloc(N*sizeof(double));
-    //printf("%e %e \n", R, deltafactor);
     for (i=0;i<N;i++){
     y=-0.5*L+delta*i;
     w[i]=0.5*y*y/R;
     phshift=fmod(2.*M_PI*deltafactor*2.*w[i]/wvl,2*M_PI);
+
     field.values[i] *= cexp(I*phshift);
     }
 
@@ -417,7 +416,7 @@ int crl_to_focus(struct c2f* arg){
     double deltaf;
     double complex quadratic;
     double complex constphase;			   //constant phase
-    double complex normfactor;
+    double complex scaling;
 
     fftw_complex* in, *out;
     fftw_plan p;
@@ -460,7 +459,7 @@ int crl_to_focus(struct c2f* arg){
     out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * n);
     p   = fftw_plan_dft_1d(n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
 
-    /* fftw  */
+    /* fftw  and quadratic phase*/
    for (i=0; i<n; i++)
     {
         y=-0.5*L+delta*i;
@@ -479,16 +478,18 @@ int crl_to_focus(struct c2f* arg){
     }
   
     constphase = cexp(I*distance*2.*M_PI/wvl);
-    normfactor = 1./(I*wvl*distance);
+    scaling = 1./(I*wvl*distance);
+
+
     
   for (i=0; i<n; i++)
     {
         y=(-N/2+i)*deltaf*wvl*distance;
         quadratic=cexp(I*M_PI*y*y/(wvl*distance));
-	
-        field.values[i]=normfactor*constphase*quadratic*delta*out[i];
+        field.values[i]=scaling*constphase*quadratic*delta*out[i];
+
     }
-    
+
     write_field_to_file(&field, "det_plane.txt");  
 
     fftw_destroy_plan(p);
@@ -555,7 +556,6 @@ int read_field_from_file(struct field* field, const char* fname)
     for (i=0; i<n; i++){ /* loop through input-reading */    
     fscanf(f, "%lf %lf %lf \n", &Re, &Im, &phase);  
     field->values[i]=Re+I*Im;
-    //printf("%d %f %fi \n", i, creal(field->values[i]), cimag(field->values[i]));
     }
 
 cleanup:
@@ -617,8 +617,8 @@ int write_field_to_file(struct field* field, const char* fname)
 (done)     * write field to FILE* f
      */
     for (i=0;i<n;i++){
-    //fprintf(f, "%f %f %f \n", creal(field->values[i]), cimag(field->values[i]), carg(field->values[i])); 
-    fprintf(f, "%f %f %f \n", creal(field->values[i]), cimag(field->values[i]), cabs(field->values[i])); 
+      if (print_intens) fprintf(f, "%f %f %f \n", creal(field->values[i]), cimag(field->values[i]), cabs(field->values[i]));
+      else fprintf(f, "%f %f %f \n", creal(field->values[i]), cimag(field->values[i]), carg(field->values[i])); 
     }
 
 cleanup:
