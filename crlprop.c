@@ -17,6 +17,7 @@ int main(int argc, const char* argv[])
     int current=0;	         //int used to keep track of the step the simulation goes through (identifying propagation)
     double distance;		 //distance to perform fourier propagation
     char fnameread[20];		 //name of the file to be read
+    char fnamewrite[20];	 //name of the file to wite to
 
     if (argc != 5)
     {
@@ -78,9 +79,9 @@ int main(int argc, const char* argv[])
           insidecrl.field->values = malloc(s2c.field->components*sizeof(complex double));
           copy_field(s2c.field, insidecrl.field);  
 	  }
-	  sprintf(fnameread,"crl_plane");
-	  sprintf(fnameread,"%s1.txt", fnameread);
-         crl_inside(&insidecrl, fnameread);
+	  sprintf(fnamewrite,"crl_plane");
+	  sprintf(fnamewrite,"%s1.txt", fnamewrite);
+          crl_inside(&insidecrl, fnamewrite);
     }
 
 
@@ -330,7 +331,6 @@ cleanup:
 //3333333333333333333333333333333333333333333333333333333333333333333
 int crl_to_fourier(struct c2f* arg, int tag, double distance){
     int ret=tag;
-      void *foo=arg;   arg=foo;   
     
     double y;				           //position on lens
     double wvl=arg->xray.wavelength;		   //wavelength
