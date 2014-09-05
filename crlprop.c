@@ -44,7 +44,7 @@ int main(int argc, const char* argv[])
     parameters.crl.deltafactor    =   3.53e-6;
     parameters.crl.R		  =  f_m*2.*M_PI*parameters.crl.deltafactor;
 
-    parameters.detector.distance  = distance2_m;//*0+40/39;
+    parameters.detector.distance  = distance2_m;// (40/39 is q for s=40 and f=1);
     parameters.detector.number    = 1000;
     parameters.detector.width     =  100e-6;
     parameters.detector.intensity = malloc(parameters.detector.number * sizeof(double)); 
@@ -127,11 +127,11 @@ int main(int argc, const char* argv[])
 	   printf("propagation successfully done. \n");
 	   copy_field(c2f.field, insidecrl.field);
 
-	   //Avoid last phase-shifting in case we got to the detector
+	   //Avoid last phase-shifting in case we got to the detector 
 	   if (current!=(lenses-1)){
-	   sprintf(fnameread,"crl_plane");
-	   sprintf(fnameread,"%s%d.txt", fnameread, current+1);
-           crl_inside(&insidecrl, fnameread);
+	   sprintf(fnamewrite,"crl_plane");
+	   sprintf(fnamewrite,"%s%d.txt", fnamewrite, current+2);
+           crl_inside(&insidecrl, fnamewrite);
 	   }	
 
 	   current=current+1;
