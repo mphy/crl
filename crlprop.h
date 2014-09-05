@@ -9,8 +9,13 @@
 
 #define Nmin 1024
 #define delta_max 10e-6
+#define field_dim 1
 #define fftshift false
 #define print_intens true
+#define lenses 1
+#define tag_val -1	//tag_val to turn on/off getting field from file
+			//Use: (-1 --> noread) (0 --> get from entrance_plane) (1 --> get from crl_1)...    
+
 
 /* some general structures to store parameters */
 
@@ -71,7 +76,7 @@ struct s2c {
     struct field* field;
 };
 
-/* parameters to the crl propagation*/
+/* parameters to the crl inside propagation*/
 struct insidecrl{
     struct xray xray;
     struct crl crl;
@@ -82,23 +87,32 @@ struct insidecrl{
 struct c2f{
     struct xray xray;
     struct crl crl;
-    struct field* field;          // Use *?
+    struct field* field;          
     struct detector detector;
 };
 
+/* parameters to the grid simulation*/
+/*struct grid{
+    int N;
+    int dimensions;
+    double delta;
+}
+*/
 int source_to_crl(struct s2c* arg, double L);
-int crl_inside(struct insidecrl* arg);
-int crl_to_focus();
+int crl_inside(struct insidecrl* arg, char* fnamewrite);
+int crl_to_fourier(struct c2f* arg, int tag, double distance);
 
 int print_parameters(struct parameters* para, FILE* f);
 int write_field_to_file(struct field* field, const char* fname);
 int read_field_from_file(struct field* field, const char* fname);
+double getPhase(double wvl, double dy, double dz);
+bool optimizeDelta(int* N, double* delta, double L, double wvl, double dz, double posy);
 
 int copy_xray(  struct xray* in,   struct xray* out);
 int copy_source(struct source* in, struct source* out);
-//int copy_field(struct field* in, struct field* out);    
 int copy_crl(struct crl* in, struct crl* out);
 int copy_detector(struct detector* in, struct detector* out);
 
-double getPhase(double wvl, double dy, double dz);
-bool optimizeDelta(int* N, double* delta, double L, double wvl, double dz, double posy);
+int copy_field(struct field* in, struct field* out);
+int show_field(struct field* argfield, char* message);
+//int get_field(struct field* field, const char* fnameread);

@@ -8,10 +8,16 @@ int main(int argc, const char* argv[])
 
     double energy_keV, distance1_m, f_m, distance2_m;
     struct parameters parameters;
-    struct s2c s2c;
-    struct insidecrl insidecrl;
-    struct c2f c2f;
-    
+    //argument structures for funtions and field memory allocation 
+    struct s2c s2c; 			s2c.field = malloc(sizeof(struct field));
+    struct insidecrl insidecrl; 	insidecrl.field = malloc(sizeof(struct field));
+    struct c2f c2f;			c2f.field = malloc(sizeof(struct field));
+
+    int tag = tag_val;           //tag determines whether initially create field or read from file
+    int current=0;	         //int used to keep track of the step the simulation goes through (identifying propagation)
+    double distance;		 //distance to perform fourier propagation
+    char fnameread[20];		 //name of the file to be read
+
     if (argc != 5)
     {
 	fprintf(stderr, "usage: %s <energy/keV> <distance1/m> <f/m> <distance2/m>\n", argv[0]);
@@ -40,199 +46,108 @@ int main(int argc, const char* argv[])
     parameters.detector.distance  = distance2_m;
     parameters.detector.number    = 1000;
     parameters.detector.width     =  100e-6;
-    parameters.detector.intensity = (double*) malloc(parameters.detector.number * sizeof(double)); 
+    parameters.detector.intensity = malloc(parameters.detector.number * sizeof(double)); 
     print_parameters(&parameters, stdout);
 
 
-    /* now propagate from point-source to CRL device */
+    /* If noread then copy parameters to s2c and generate field*/
+    if (tag==-1){
     copy_xray(&parameters.xray,   &s2c.xray);
     copy_source(&parameters.source, &s2c.source);
-    source_to_crl(&s2c, parameters.crl.aperture);			
+    source_to_crl(&s2c, parameters.crl.aperture);
+    }			
 
-    /* propagate through the CRL device */   //(just phase-change according to lens width profile)
-    /* TODO */
-    copy_xray(&s2c.xray, &insidecrl.xray);
+    /* copy parameters to insidecrl structure*/
+    copy_xray(&parameters.xray, &insidecrl.xray);
     copy_crl(&parameters.crl, &insidecrl.crl);
 
-    //copy_field(&s2c.field, &insidecrl.field);    NOT WORKING --> Read values from file instead
-    crl_inside(&insidecrl);
+    //Pre-process: Create/read field and allocate memory
+    //if field is coming from entrance_plane (both generated or read) allocate and execute PREVIOUS phase-shifting 
+    if ((tag==-1)||(tag==0)){
+	  //Reading from entrance_plane
+          if (tag==0){
+	  sprintf(fnameread,"entrance_plane%s.txt", fnameread);
+	  sprintf(fnameread,"%s.txt", fnameread);
+	  read_field_from_file(insidecrl.field, fnameread);
+	  //get_field(insidecrl.field, fnameread);
+	  tag=-1;
+ 	  }
+	  //Getting from field already generated
+          else{
+          insidecrl.field->size = malloc(s2c.field->dimensions*sizeof(int));
+          insidecrl.field->values = malloc(s2c.field->components*sizeof(complex double));
+          copy_field(s2c.field, insidecrl.field);  
+	  }
+	  sprintf(fnameread,"crl_plane");
+	  sprintf(fnameread,"%s1.txt", fnameread);
+         crl_inside(&insidecrl, fnameread);
+    }
+
+
+    else{
+	  sprintf(fnameread,"crl_plane");
+	  sprintf(fnameread,"%s%d.txt", fnameread, tag);
+	  read_field_from_file(insidecrl.field, fnameread);
+    }
 
 
 
-    /* finally, propagate from CRL device to focus */
-    /* TODO */
-    copy_xray(&insidecrl.xray, &c2f.xray);
-    copy_crl(&parameters.crl, &c2f.crl);
-    copy_detector(&parameters.detector,&c2f.detector);
-    crl_to_focus(&c2f);
+    // Start lens loop: while current state (lens) has not reached total lens amount. (phshift) + /PROP+(PHSHIFT)/
+    //										      (previous) +/LOOP+(post)/
+	while(current!=lenses){
+	   
+	   //Assign distance value (detector or lens separation)
+   	   if (current==(lenses-1)){
+	   distance=parameters.detector.distance;
+           fprintf(stderr, "warning: detector members are not used.\n");
+	   }
+	   else{
+           distance=parameters.crl.separation;
+	   }
+	
+	
+	   printf("\n\nNEW STEP:  current state=%d , tag=%d \n", current, tag);
 
+	      // copy parameters for fourier propagation  REDUNDANT COPY IN FUTURE! Place outside loop
+	       copy_xray(&insidecrl.xray, &c2f.xray);
+	       copy_crl(&parameters.crl, &c2f.crl);
+	       copy_detector(&parameters.detector,&c2f.detector); 
+		
+	   //if noread get field from previous steps, allocate if first time
+//if (tag==-1){
+	       if (current==0){
+	           c2f.field->size = malloc(insidecrl.field->dimensions*sizeof(int));
+	           c2f.field->values = malloc(insidecrl.field->components*sizeof(complex double));
+	           }
+	       copy_field(insidecrl.field, c2f.field);
+//}   
 
-    /* write result to a file */
-    /* TODO */
+	      printf("Call Fourier propagation... \n");
+       	      printf("distance for propagation %d will be %f \n", current, distance);
+	   //perform fourier propagation: from CRL to CRL or focus 
+           crl_to_fourier(&c2f, tag, distance);
+	   printf("propagation successfully done. \n");
+	   copy_field(c2f.field, insidecrl.field);
 
+	   //Avoid last phase-shifting in case we got to the detector
+	   if (current!=(lenses-1)){
+	   sprintf(fnameread,"crl_plane");
+	   sprintf(fnameread,"%s%d.txt", fnameread, current+1);
+           crl_inside(&insidecrl, fnameread);
+	   }	
 
+	   current=current+1;
+	   if (current!=0) copy_field(c2f.field, insidecrl.field);
+      }
+      write_field_to_file(c2f.field, "det_plane.txt");
 
+    
+    /* call gnuplot script to generate plots */
+    system ("gnuplot gpscript.gp");
 
 cleanup:
     return ret;
-}
-
-
-
-/* print parameters to FILE* f; if f==NULL, print to stdout */
-int print_parameters(struct parameters* para, FILE* f)
-{
-    if (f==NULL)
-	f = stdout;
-
-    fprintf(f, "Parameter Settings\n");
-    fprintf(f, "===========================\n");
-    fprintf(f, "\n");
-
-    fprintf(f, "X-Ray Settings\n");
-    fprintf(f, "---------------------------\n");
-    fprintf(f, "energy:        %8.2f keV\n", para->xray.energy);
-    fprintf(f, "wavelength:    %8.2f Å\n",   para->xray.wavelength*1e10);
-    fprintf(f, "wavenumber:    %8.2f Å⁻¹\n", para->xray.wavenumber*1e-10);
-    fprintf(f, "\n");
-
-    fprintf(f, "Source Settings\n");
-    fprintf(f, "---------------------------\n");
-    fprintf(f, "distance:      %8.2f m\n",   para->source.distance);
-    fprintf(f, "\n");
-
-    fprintf(f, "CRL Device Settings\n");
-    fprintf(f, "---------------------------\n");
-    fprintf(f, "focal length:  %8.2f m\n",   para->crl.f);
-    fprintf(f, "aperture:      %8.2f mm\n",  para->crl.aperture*1e3);
-    fprintf(f, "separation:    %8.2f µm\n",  para->crl.separation*1e6);
-    fprintf(f, "offset:        %8.2f µm\n",  para->crl.offset*1e6);
-    fprintf(f, "deltafactor:   %8.2f µm\n",  para->crl.deltafactor*1e6);
-    fprintf(f, "radius R:      %8.2f µm\n",  para->crl.R*1e6);
-    fprintf(f, "number/lenses: %5d\n",       para->crl.number);
-    fprintf(f, "\n");
-
-    fprintf(f, "Detector Settings\n");
-    fprintf(f, "---------------------------\n");
-    fprintf(f, "distance:      %8.2f m\n",   para->detector.distance);
-    fprintf(f, "number/pixels: %5d\n",       para->detector.number);
-    fprintf(f, "width:         %8.2f µm\n",  para->detector.width*1e6);
-    fprintf(f, "pixel size:    %8.2f nm\n",  para->detector.width/para->detector.number*1e9);
-    fprintf(f, "\n");
-
-    return 0;
-}
-
-
-/* copy struct xray elements */
-int copy_xray(struct xray* in, struct xray* out)
-{
-    int ret = 0;
-
-    if (in == NULL)
-    {
-	fprintf(stderr, "error: in points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    if (out == NULL)
-    {
-	fprintf(stderr, "error: out points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    out->energy     = in->energy;
-    out->wavelength = in->wavelength;
-    out->wavenumber = in->wavenumber;
-
-cleanup:
-    return ret;
-}
-
-/* copy struct crl elements */
-int copy_crl(struct crl* in, struct crl* out)
-{
-    int ret = 0;
-
-    if (in == NULL)
-    {
-	fprintf(stderr, "error: in points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    if (out == NULL)
-    {
-	fprintf(stderr, "error: out points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    out->f = in->f;
-    out->aperture = in->aperture;
-    out->separation = in->separation;
-    out->number = in->number;
-    out->deltafactor = in->deltafactor;
-    out->R = in->R;
-
-cleanup:
-    return ret;
-}
-
-/* copy struct source elements */
-int copy_source(struct source* in, struct source* out)
-{
-    int ret = 0;
-
-    if (in == NULL)
-    {
-	fprintf(stderr, "error: in points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    if (out == NULL)
-    {
-	fprintf(stderr, "error: out points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    out->distance = in->distance;
-
-cleanup:
-    return ret;
-}
-
-/* copy struct detector elements */
-int copy_detector(struct detector* in, struct detector* out)
-{
-    int ret = 0;
-
-    if (in == NULL)
-    {
-	fprintf(stderr, "error: in points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    if (out == NULL)
-    {
-	fprintf(stderr, "error: out points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    out->distance = in->distance;
-    out->number = in->number;
-    out->width = in->width;
-    out->intensity = in->intensity;
-
-cleanup:
-    return ret;
-}
+}//main
 
 
 /* propagate point-source to CRL device */
@@ -252,7 +167,7 @@ int source_to_crl(struct s2c* arg, double L)
     double ph;           		//phase
     double Re, Im;			//Real and Imaginary components of field
     double wvl=(arg->xray.wavelength);	//wavelength
-
+    char* fnamewrite="entrance_plane.txt";   //file name
 
     struct field field;
     field.size=NULL;
@@ -269,25 +184,13 @@ int source_to_crl(struct s2c* arg, double L)
   /*Delta-N loop, max phase difference - Sets N and delta*/
   optimizeDelta(&N, &delta, L, wvl, dz, posy);
  
-    u = (complex double*) malloc(N*sizeof(complex double));
+    u = malloc(N*sizeof(complex double)); //dim 1
     if (u == NULL)
     {
 	fprintf(stderr, "error: malloc failed (%s:%d) [%s]\n", __FILE__, __LINE__, strerror(errno));
 	ret = -1;
 	goto cleanup;
     }
-
-    /* TODO:
-(done)     * calculate proper sampling:
-(done)     * change number of points N so that phase shift between two points << 2pi, (pi/10 suggested)
-
-(done)     * propagate point-source to entrance plane, save complex values in array u 
-
-(done)     * save propagated field to file
-(done)     * calling and implementing function write_field_to_file(struct field* field);
-
-(done)     * save propagated field to struct field* arg->field
-    */
 
     /**/
     A=1;
@@ -301,8 +204,14 @@ int source_to_crl(struct s2c* arg, double L)
     }
 
     /* copy u to field; first get some memory */
-    field.dimensions = 1;
-    field.size = (int*) malloc(field.dimensions*sizeof(int));
+    field.dimensions = field_dim;
+    field.size = malloc(field.dimensions*sizeof(int));
+
+    //Start allocation for s2c
+    arg->field->size = malloc(field.dimensions*sizeof(int));
+
+
+
     /* calculate total number of points in all dimensions */
     for (i=0; i<field.dimensions; i++)
     {
@@ -310,29 +219,34 @@ int source_to_crl(struct s2c* arg, double L)
 	n *= field.size[i];
     }
 
-    /*copy n to field.components*/ 
+    /*copy n to field.components and allocate both for field and s2c.field*/ 
     field.components = n;
-    field.values = (complex double*) malloc(n*sizeof(complex double));
-    /* (done) TODO: copy u to field.values */
+    field.values = malloc(n*sizeof(complex double));
+    arg->field->values = malloc(n*sizeof(complex double));
+
+    /* copy u to field.values */
     for (i=0; i<n;i++){
     field.values[i]=u[i];		
     }
-    
+
+    copy_field(&field, arg->field);
+
     /* now save the entrance field to a file */
-    write_field_to_file(&field, "entrance_plane.txt");
+    write_field_to_file(&field, fnamewrite);
 
 cleanup:
     if (field.size)   free(field.size);   field.size=NULL;
     if (field.values) free(field.values); field.values=NULL;
-//    if (field.dimensions) free(field.dimensions); field.dimensions=NULL;
-//    if (field.components) free(field.components); field.components=NULL;
     if (u) free(u); u=NULL;
     return ret;
 }
 
+
 /* propagate field through CRL device (apply phase-shift in real space)*/
-int crl_inside(struct insidecrl* arg){
+//11111111111111111111111111111111111111111111111111111111111111111111111111111
+int crl_inside(struct insidecrl* arg, char* fnamewrite){
     int ret = 0;
+
 
     double y;				           //postition on lens
     double wvl=arg->xray.wavelength;		   //wavelength
@@ -346,6 +260,9 @@ int crl_inside(struct insidecrl* arg){
     double* w;    				   //array holdind lens profile values
     double delta;
     double phshift;
+//    char fnamewrite="crl_plane.txt";   	   //file name to write to
+//    char* fnameread;
+//    bool noread=(*tag==-1);
 
     struct field field;
     field.size=NULL;
@@ -357,29 +274,31 @@ int crl_inside(struct insidecrl* arg){
 	ret = -1;
 	goto cleanup;
     }
-    field.dimensions=1;
-    field.size = (int*) malloc(field.dimensions*sizeof(int));
-
+    
+    fprintf(stderr, "warning: equal CRL profiles are used and computed for each step.\n");
     fprintf(stderr, "warning: no scaling nor fft used in %s.\n", __FUNCTION__);
-    fprintf(stderr, "warning: field is read from file in %s.\n \
-    \t Problems (dim > 1) could appear \n\n", __FUNCTION__);
+    
+	  //Allocate memory for the field
+          field.size = malloc(arg->field->dimensions*sizeof(int));
+    	  field.values = malloc((arg->field->components)*sizeof(complex double)); //explicit allocation field
+	  copy_field(arg->field, &field);
 
-    //Read values, get N and allocate memory
-    read_field_from_file(&field, "entrance_plane.txt");
     n=field.components;
 
-    /* retrieve size from total number of points in all dimensions */
+   //  retrieve size from total number of points in all dimensions 
     for (i=0; i<field.dimensions; i++)
     {
 	//Problems with inverse process dim!=1. Usage of pow nth root is an option. 
         //field.size[i] = N;	//as many components as dimensions
 	//n *= field.size[i];
-      N=n;
+      N=n; //dim 1
     field.size[i]=N;
     }
     delta=L/N;
 
-    /* calculate crl profile and apply phase shift */
+show_field(&field, "in crl_inside before shifting");
+
+    // calculate crl profile and apply phase shift 
     w = (double*) malloc(N*sizeof(double));
     for (i=0;i<N;i++){
     y=-0.5*L+delta*i;
@@ -389,19 +308,29 @@ int crl_inside(struct insidecrl* arg){
     field.values[i] *= cexp(I*phshift);
     }
 
-    /* now save the crl field to a file */
-    write_field_to_file(&field, "crl_plane.txt");
+    // now save the crl field to a file and structure
+    write_field_to_file(&field, fnamewrite);
+    copy_field(&field, arg->field);
+
+show_field(&field, "in crl_inside after shifting");
 
 cleanup:
     if (field.size)   free(field.size);   field.size=NULL;
     if (field.values) free(field.values); field.values=NULL;
-    if (w) free(w); w=NULL;
+    if (w) free(w); w=NULL; 
     return ret;
 }
 
+// propag field from crl to crl --> Not needed as crl_to_fourier already does a propagation
+//2222222222222222222222222222222222222222222222222222222222222222222
+//int crl_to_crl();
+
+
 /* propagate field from CRL to focus(detector) */
-int crl_to_focus(struct c2f* arg){
-    int ret=0;
+//3333333333333333333333333333333333333333333333333333333333333333333
+int crl_to_fourier(struct c2f* arg, int tag, double distance){
+    int ret=tag;
+      void *foo=arg;   arg=foo;   
     
     double y;				           //position on lens
     double wvl=arg->xray.wavelength;		   //wavelength
@@ -410,13 +339,14 @@ int crl_to_focus(struct c2f* arg){
     int i; 					   //counter
     int N=Nmin;					   //Number of points 
     int n = 1;					   //dimensions (components)
-    // double f = arg->crl.f;
-    double distance = arg->detector.distance;
+    // double f = arg->crl.f;			   //focal length
     double delta;
     double deltaf;
     double complex quadratic;
     double complex constphase;			   //constant phase
     double complex scaling;
+    char* fnameread;		   	   	   //file name to read from
+    //char* fnamewrite="det_plane.txt";   	   //file name to write to
 
     fftw_complex* in, *out;
     fftw_plan p;
@@ -432,18 +362,30 @@ int crl_to_focus(struct c2f* arg){
 	ret = -1;
 	goto cleanup;
     }
-    field.dimensions=1;
-    field.size = (int*) malloc(field.dimensions*sizeof(int));
+ 
+   fprintf(stderr, "warning: scaling and correct use of fft to be reviewed in %s.\n", __FUNCTION__);
+
+    if (tag==-1){
+     field.size = malloc(arg->field->dimensions*sizeof(int));
+     field.values = malloc((arg->field->components)*sizeof(complex double)); //explicit allocation field
+     copy_field(arg->field, &field);
+    }
+
+    else{
    
-    fprintf(stderr, "warning: scaling and correct use of fft to be reviewed in %s.\n", __FUNCTION__);
     fprintf(stderr, "warning: field is read from file in %s.\n \
     \t Problems (dim > 1) could appear \n\n", __FUNCTION__);
+    
+    fnameread="crl_plane.txt";
+    //Read values, get N, field.dimensions and allocate memory (field.size and field.values) inside function field
+    read_field_from_file(&field, fnameread);
 
-    //Read values, get N and allocate memory
-    read_field_from_file(&field, "crl_plane.txt");
+	    arg->field->size=malloc(field.dimensions*sizeof(int));
+  	    arg->field->values=malloc(field.components*sizeof(complex double));
+    }
     n=field.components;
-
-    /* retrieve size from total number of points in all dimensions */
+    
+    // retrieve size from total number of points in all dimensions 
     for (i=0; i<field.dimensions; i++)
     {
 	//Problems with inverse process dim!=1. Usage of pow nth root is an option. 
@@ -455,11 +397,11 @@ int crl_to_focus(struct c2f* arg){
     delta=L/N;
     deltaf=1./(delta*N);
 
-    in  = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * n);
-    out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * n);
+    in  = fftw_malloc(sizeof(fftw_complex) * n);
+    out = fftw_malloc(sizeof(fftw_complex) * n);
     p   = fftw_plan_dft_1d(n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
 
-    /* fftw  and quadratic phase*/
+    // fftw  and quadratic phase
    for (i=0; i<n; i++)
     {
         y=-0.5*L+delta*i;
@@ -490,7 +432,8 @@ int crl_to_focus(struct c2f* arg){
 
     }
 
-    write_field_to_file(&field, "det_plane.txt");  
+//    write_field_to_file(&field, fnamewrite);  done in main
+      copy_field(&field, arg->field);
 
     fftw_destroy_plan(p);
     fftw_free(in);
@@ -499,200 +442,6 @@ int crl_to_focus(struct c2f* arg){
 cleanup:
     if (field.size)   free(field.size);   field.size=NULL;
     if (field.values) free(field.values); field.values=NULL;
-//    if (field.dimensions) free(field.dimensions); field.dimensions=NULL;
-//    if (field.components) free(field.components); field.components=NULL;
     return ret;
 }
 
-int read_field_from_file(struct field* field, const char* fname)
-{
-    int ret = 0;
-    int i = 0;
-    int n;
-    double Re,Im;
-    double phase;
-    FILE* f = fopen(fname, "r");
-
-    if (field == NULL)
-    {
-	fprintf(stderr, "error: field points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-    if (field->dimensions < 1)
-    {
-	fprintf(stderr, "error: field has invalid dimensionality %d (%s:%d)\n",
-		field->dimensions, __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    if (fname == NULL)
-    {
-	fprintf(stderr, "error: fname points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    f = fopen(fname, "r");
-    if (f == NULL)
-    {
-	fprintf(stderr, "error: cannot open file [%s] (%s:%d) [%s]\n",
-		fname, __FILE__, __LINE__, strerror(errno));
-	ret = -1;
-	goto cleanup;
-    }
-
-    /* read values from FILE f, set n */ 
-    n=0;
-    while (fscanf(f, "%lf %lf %lf \n", &Re, &Im, &phase )!= EOF ){  /* get components */    
-    n++;
-    }
-    rewind(f);		//bring back to beginning to start the proper reading
-
-    field->components=n;
-    field->values = (complex double*) malloc(n*sizeof(complex double));
-
-    for (i=0; i<n; i++){ /* loop through input-reading */    
-    fscanf(f, "%lf %lf %lf \n", &Re, &Im, &phase);  
-    field->values[i]=Re+I*Im;
-    }
-
-cleanup:
-    if (f) fclose(f); f=NULL;
-    return ret;
-}
-
-int write_field_to_file(struct field* field, const char* fname)
-{
-    int ret = 0;
-    int n=field->components;
-    int i;
-    FILE* f = fopen(fname, "w");
-
-    if (field == NULL)
-    {
-	fprintf(stderr, "error: field points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-    if (field->dimensions < 1)
-    {
-	fprintf(stderr, "error: field has invalid dimensionality %d (%s:%d)\n",
-		field->dimensions, __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-    if (field->size == NULL)
-    {
-	fprintf(stderr, "error: field has invalid size array (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-    if (field->values == NULL)
-    {
-	fprintf(stderr, "error: field has invalid values array (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    if (fname == NULL)
-    {
-	fprintf(stderr, "error: fname points to NULL (%s:%d)\n", __FILE__, __LINE__);
-	ret = -1;
-	goto cleanup;
-    }
-
-    f = fopen(fname, "w");
-    if (f == NULL)
-    {
-	fprintf(stderr, "error: cannot open file [%s] (%s:%d) [%s]\n",
-		fname, __FILE__, __LINE__, strerror(errno));
-	ret = -1;
-	goto cleanup;
-    }
-
-
-    /* TODO:
-(done)     * write field to FILE* f
-     */
-    for (i=0;i<n;i++){
-      if (print_intens) fprintf(f, "%f %f %f \n", creal(field->values[i]), cimag(field->values[i]), cabs(field->values[i]));
-      else fprintf(f, "%f %f %f \n", creal(field->values[i]), cimag(field->values[i]), carg(field->values[i])); 
-    }
-
-cleanup:
-    if (f) fclose(f); f=NULL;
-    return ret;
-}
-
-
-
-double getPhase(double wvl, double dy, double dz){
-  double r=sqrt(dy*dy+dz*dz);				//distance
-  double opd=r-dz;					//optical path difference
-  return fmod(opd*2.*M_PI/wvl,2*M_PI);			//might have problems if long int is not used
-}
-
-bool optimizeDelta(int* Nref, double* deltaref, double L, double wvl, double dz, double posy){
-double deltastep=0.5e-6;
-double dy;
-double ph;
-double prevph;
-double phdif;
-int N = *Nref;
-double delta = *deltaref;
-int i,j;
-bool delta_is_set=false;
-bool delta_reached_max=false;
-
-while (!delta_is_set){
-   j=0;
-        while (delta>=delta_max){
-        N=2*N;
-        delta=L/N;
-        }
-   delta_reached_max=false;	  
-   while(!delta_reached_max){
-     /////////////////////////////phdif calculation//////////////////////////////////////////////////////
-     phdif=2*M_PI;
-     ph=0;
-	  
-     for(i=0;i<2;i++){
-     prevph=ph;
-     dy=delta*(N/2-i)+fabs(posy);
-     ph=getPhase(wvl,dy,dz);
-     }
-
-      phdif=fabs(ph-prevph);
-      phdif=(phdif<(2.*M_PI-phdif)) ? phdif : 2.*M_PI-phdif;  		
-      ///////////////////////////////////////////////////////////////////////////////////////////////////
-	  
-      if(phdif<(0.1*M_PI)){
-      delta=delta+deltastep;
-      delta_reached_max=false; 		//keep iterating
-      j++;		     		//suitable delta must have j!=0
-      } 
-
-      else if((phdif>=(0.1*M_PI))&&(j!=0)) {
-      delta_reached_max=true;
-      delta=L/N+(j-1)*deltastep;	//take previous value
-      delta_is_set=(delta<delta_max);	//check, only successful case
-      }
-	
-      else {
-      N=2*N;
-      delta=L/N;
-      delta_reached_max=true;
-      }	  
-   }
-}
-    *deltaref=delta;
-    *Nref=N;
-    printf("Calculation parameters\n");
-    printf("---------------------------\n");
-    printf("N:             %5d\n",       N);
-    printf("delta:         %8.2f µm\n",  delta*1e6);    
-    printf("\n");
-return true;
-}
