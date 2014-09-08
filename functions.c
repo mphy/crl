@@ -10,7 +10,7 @@ int read_field_from_file(struct field* field, const char* fname)
     int ret = 0;
     int i = 0;
     int n;
-    double Re,Im;
+    double Re,Im,y;
     double val;				//Value of intensity or phase
     FILE* f = fopen(fname, "r");
 
@@ -53,7 +53,7 @@ int read_field_from_file(struct field* field, const char* fname)
 
     /* read values from FILE f, set n */ 
     n=0;
-    while (fscanf(f, "%lf %lf %lf \n", &Re, &Im, &val )!= EOF ){  /* get components */    
+    while (fscanf(f, "%lf %lf %lf %lf \n", &y, &Re, &Im, &val )!= EOF ){  /* get components */    
     n++;
     }
     rewind(f);		//bring back to beginning to start the proper reading
@@ -63,7 +63,7 @@ int read_field_from_file(struct field* field, const char* fname)
     field->values = malloc(n*sizeof(complex double));
 
     for (i=0; i<n; i++){ /* loop through input-reading */    
-    fscanf(f, "%lf %lf %lf \n", &Re, &Im, &val);  
+    fscanf(f, "%lf %lf %lf %lf \n", &y, &Re, &Im, &val);  
     field->values[i]=Re+I*Im;
     }
 
@@ -72,7 +72,7 @@ cleanup:
     return ret;
 }
 
-int write_field_to_file(struct field* field, const char* fname)
+int write_field_to_file(struct field* field, const char* fname, double L)
 {
     int ret = 0;
     int n=field->components;
@@ -126,8 +126,8 @@ int write_field_to_file(struct field* field, const char* fname)
 (done)     * write field to FILE* f
      */
     for (i=0;i<n;i++){
-      if (print_intens) fprintf(f, "%f %f %f \n", creal(field->values[i]), cimag(field->values[i]), cabs(field->values[i]));
-      else fprintf(f, "%f %f %f \n", creal(field->values[i]), cimag(field->values[i]), carg(field->values[i])); 
+      if (print_intens) fprintf(f, "%f %f %f %f \n", (-0.5+i*1./n)*L, creal(field->values[i]), cimag(field->values[i]), cabs(field->values[i]));
+      else fprintf(f, "%f %f %f %f \n", (-0.5+i*1./n)*L, creal(field->values[i]), cimag(field->values[i]), carg(field->values[i])); 
     }
 
 cleanup:
