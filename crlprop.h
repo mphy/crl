@@ -10,7 +10,7 @@
 #define Nmin 1024
 #define delta_max 10e-6
 #define field_dim 1
-#define fftshift false
+#define fftshift true
 #define print_intens true
 #define lenses 1
 #define tag_val -1	//tag_val to turn on/off getting field from file
@@ -101,9 +101,10 @@ struct c2f{
 int source_to_crl(struct s2c* arg, double L);
 int crl_inside(struct insidecrl* arg, char* fnamewrite);
 int crl_to_fourier(struct c2f* arg, int tag, double distance);
+int crl_to_focus(struct c2f* arg, int tag, double distance);
 
 int print_parameters(struct parameters* para, FILE* f);
-int write_field_to_file(struct field* field, const char* fname);
+int write_field_to_file(struct field* field, const char* fname, double L);
 int read_field_from_file(struct field* field, const char* fname);
 double getPhase(double wvl, double dy, double dz);
 bool optimizeDelta(int* N, double* delta, double L, double wvl, double dz, double posy);

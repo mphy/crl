@@ -62,6 +62,11 @@ int main(int argc, const char* argv[])
     copy_xray(&parameters.xray, &insidecrl.xray);
     copy_crl(&parameters.crl, &insidecrl.crl);
 
+    /* copy parameters to c2f structure for the propagation*/
+    copy_xray(&insidecrl.xray, &c2f.xray);
+    copy_crl(&parameters.crl, &c2f.crl);
+    copy_detector(&parameters.detector,&c2f.detector); 
+
     //Pre-process: Create/read field and allocate memory
     //if field is coming from entrance_plane (both generated or read) allocate and execute PREVIOUS phase-shifting 
     if (tag>0){
@@ -97,22 +102,11 @@ int main(int argc, const char* argv[])
     //										      (previous) +/LOOP+(post)/
 	while(current!=lenses){
 	   
-	   //Assign distance value (detector or lens separation)
-   	   if (current==(lenses-1)){
-	   distance=parameters.detector.distance;
-           fprintf(stderr, "warning: detector members are not used.\n");
-	   }
-	   else{
-           distance=parameters.crl.separation;
-	   }
+	   
 
 	   printf("\n\nNEW STEP:  current state=%d , tag=%d \n", current, tag);
 
-	       // copy parameters for fourier propagation  REDUNDANT COPY IN FUTURE! Place outside loop
-	       copy_xray(&insidecrl.xray, &c2f.xray);
-	       copy_crl(&parameters.crl, &c2f.crl);
-	       copy_detector(&parameters.detector,&c2f.detector); 
-		
+	
 	       // get field from previous steps, allocate if first time
 	       if (current==0){
 	           c2f.field->size = malloc(insidecrl.field->dimensions*sizeof(int));
@@ -120,24 +114,33 @@ int main(int argc, const char* argv[])
 	           }
 	       copy_field(insidecrl.field, c2f.field);
 
-	      printf("Call Fourier propagation... \n");
-       	      printf("distance for propagation %d will be %f \n", current, distance);
-	   //perform fourier propagation: from CRL to CRL or focus 
-           crl_to_fourier(&c2f, tag, distance);
+
+ 	   //perform fourier propagation: from CRL to CRL or Detector (different methods)
+	   printf("Call Fourier propagation... \n");
+   	   if (current==(lenses-1)){
+	   distance=parameters.detector.distance;
+           fprintf(stderr, "warning: detector members are not used.\n");
+           crl_to_focus(&c2f, tag, distance);
+	   }
+	   else{
+           distance=parameters.crl.separation;  
+           crl_to_fourier(&c2f, tag, distance);}
+
+    	   printf("distance for propagation %d was %f \n", current, distance);
 	   printf("propagation successfully done. \n");
 	   copy_field(c2f.field, insidecrl.field);
 
-	   //Avoid last phase-shifting in case we got to the detector 
+	   //if not reached detector then phase-shift before propagation 
 	   if (current!=(lenses-1)){
 	   sprintf(fnamewrite,"crl_plane");
 	   sprintf(fnamewrite,"%s%d.txt", fnamewrite, current+2);
            crl_inside(&insidecrl, fnamewrite);
-	   }	
+	   }
 
 	   current=current+1;
 	   //if (current!=0) copy_field(c2f.field, insidecrl.field);
       }
-      write_field_to_file(c2f.field, "det_plane.txt");
+      write_field_to_file(c2f.field, "det_plane.txt", parameters.detector.width);
 
     
     /* call gnuplot script to generate plots */
@@ -230,7 +233,7 @@ int source_to_crl(struct s2c* arg, double L)
     copy_field(&field, arg->field);
 
     /* now save the entrance field to a file */
-    write_field_to_file(&field, fnamewrite);
+    write_field_to_file(&field, fnamewrite, L);
 
 cleanup:
     if (field.size)   free(field.size);   field.size=NULL;
@@ -304,7 +307,7 @@ show_field(&field, "in crl_inside before shifting");
     }
 
     // now save the crl field to a file and structure
-    write_field_to_file(&field, fnamewrite);
+    write_field_to_file(&field, fnamewrite, L);
     copy_field(&field, arg->field);
 
 show_field(&field, "in crl_inside after shifting");
@@ -316,13 +319,9 @@ cleanup:
     return ret;
 }
 
-// propag field from crl to crl --> Not needed as crl_to_fourier already does a propagation
-//2222222222222222222222222222222222222222222222222222222222222222222
-//int crl_to_crl();
 
-
-/* propagate field from CRL using Fourier Transform (to crl or detector) */
-//3333333333333333333333333333333333333333333333333333333333333333333
+/* propagate field from CRL using Fourier Transform (to crl!) */
+//22222222222222222222222222222222222222222222222222222222222222222222222222
 int crl_to_fourier(struct c2f* arg, int tag, double distance){
     int ret=tag;
 
@@ -375,29 +374,38 @@ int crl_to_fourier(struct c2f* arg, int tag, double distance){
     }
     delta=L/N;
     deltaf=1./(delta*N);
-printf("PROP N=%d delta=%fμ deltaf=%f \n", N, delta*1e6, deltaf); 
+printf("CRL to CRL propagation N=%d delta=%fμ deltaf=%f \n", N, delta*1e6, deltaf); 
     in  = fftw_malloc(sizeof(fftw_complex) * n);
     out = fftw_malloc(sizeof(fftw_complex) * n);
     p   = fftw_plan_dft_1d(n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
 
     // fftw  and quadratic phase (y1)
-   for (i=0; i<n; i++)
+    for (i=0; i<n; i++)
     {
         y=-0.5*L+delta*i;
         quadratic=cexp(I*M_PI*y*y/(wvl*distance));
 	in[i]=quadratic*field.values[i];
     }
 
-    //fftexecute
-    fftw_execute(p);
     //fftshift
     if (fftshift)
+    for (i=0; i<N/2; i++){
+    val=in[i];
+    in[i]=in[i+N/2];
+    in[i+N/2]=val;
+    }
+
+    //fftexecute
+    fftw_execute(p);
+
+    //fftshift
+   if (fftshift)
     for (i=0; i<N/2; i++){
     val=out[i];
     out[i]=out[i+N/2];
     out[i+N/2]=val;
     }
-  
+
     constphase = cexp(I*distance*2.*M_PI/wvl);
     scaling = 1./(I*wvl*distance);
 
@@ -405,7 +413,117 @@ printf("PROP N=%d delta=%fμ deltaf=%f \n", N, delta*1e6, deltaf);
     //apply quadratic phase (y2), scaling and constant phase
   for (i=0; i<n; i++)
     {
-        y=(-N/2+i)*deltaf*wvl*distance;
+        y=(-0.5*N+i)*deltaf*wvl*distance;
+        quadratic=cexp(I*M_PI*y*y/(wvl*distance));
+        field.values[i]=scaling*constphase*quadratic*delta*out[i];
+
+    }
+
+//    write_field_to_file(&field, fnamewrite);  done in main
+      copy_field(&field, arg->field);
+
+    fftw_destroy_plan(p);
+    fftw_free(in);
+    fftw_free(out);
+
+cleanup:
+    if (field.size)   free(field.size);   field.size=NULL;
+    if (field.values) free(field.values); field.values=NULL;
+    return ret;
+}
+
+/* propagate field from CRL using Fourier Transform (to crl!) */
+//33333333333333333333333333333333333333333333333333333333333333333333333333
+int crl_to_focus(struct c2f* arg, int tag, double distance){
+    int ret=tag;
+
+    
+    double y;				           //position on detector
+    double wvl=arg->xray.wavelength;		   //wavelength
+    double L = arg->detector.width;    		   //size of detector
+    int i; 					   //counter
+    int N=Nmin;					   //Number of points 
+    int n = 1;					   //dimensions (components)
+    double delta;
+    double deltaf;
+    double complex quadratic;
+    double complex constphase;			   //constant phase
+    double complex scaling;
+
+    fftw_complex* in, *out;
+    fftw_plan p;
+    fftw_complex val;
+
+    struct field field;
+    field.size=NULL;
+    field.values=NULL;
+
+    if (arg == NULL)
+    {
+	fprintf(stderr, "error: arg points to NULL (%s:%d)\n", __FILE__, __LINE__);
+	ret = -1;
+	goto cleanup;
+    }
+ 
+   fprintf(stderr, "warning: scaling and correct use of fft to be reviewed in %s.\n", __FUNCTION__);
+
+     field.size = malloc(arg->field->dimensions*sizeof(int));
+     field.values = malloc((arg->field->components)*sizeof(complex double)); //explicit allocation field
+     copy_field(arg->field, &field);
+    
+    n=field.components;
+    
+    // retrieve size from total number of points in all dimensions 
+    for (i=0; i<field.dimensions; i++)
+    {
+	//Problems with inverse process dim!=1. Usage of pow nth root is an option. 
+        //field.size[i] = N;	//as many components as dimensions
+	//n *= field.size[i];
+      N=n;
+    field.size[i]=N;
+    }
+    delta=L/N;
+    deltaf=1./(delta*N);
+printf("CRL to focus propagation N=%d delta=%fμ deltaf=%f \n", N, delta*1e6, deltaf); 
+    in  = fftw_malloc(sizeof(fftw_complex) * n);
+    out = fftw_malloc(sizeof(fftw_complex) * n);
+    p   = fftw_plan_dft_1d(n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
+
+    // fftw  and quadratic phase (y1)
+    for (i=0; i<n; i++)
+    {
+        y=(-0.5*N+i)*delta;
+        quadratic=cexp(I*M_PI*y*y/(wvl*distance));
+	in[i]=quadratic*field.values[i];
+    }
+
+    //fftshift
+    if (fftshift)
+    for (i=0; i<N/2; i++){
+    val=in[i];
+    in[i]=in[i+N/2];
+    in[i+N/2]=val;
+    }
+
+    //fftexecute
+    fftw_execute(p);
+
+    //fftshift
+   if (fftshift)
+    for (i=0; i<N/2; i++){
+    val=out[i];
+    out[i]=out[i+N/2];
+    out[i+N/2]=val;
+    }
+
+    constphase = cexp(I*distance*2.*M_PI/wvl);
+    scaling = 1./(I*wvl*distance);
+
+
+    //apply quadratic phase (y2), scaling and constant phase
+  for (i=0; i<n; i++)
+    {
+        y=(-0.5*N+i)*deltaf*wvl*distance;
         quadratic=cexp(I*M_PI*y*y/(wvl*distance));
         field.values[i]=scaling*constphase*quadratic*delta*out[i];
 
