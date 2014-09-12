@@ -1,0 +1,80 @@
+####################
+Delta-N optimization
+N=8192 delta=    0.12 µm
+WARNING: Optimize_delta changes not applied, delta<delta_max phdif<0.1pi
+Calculation parameters
+---------------------------
+N:              8192
+delta:             0.12 µm
+
+   ******************************
+   Field in in crl_inside before shifting 
+   argfield.dimensions=1 
+   argfield.size[0]=8192 
+   argfield.components=8192 
+      first 10 {Re} values: 
+   argfield.values[0]=0.000000
+   argfield.values[1]=0.000000
+   argfield.values[2]=0.000000
+   argfield.values[3]=0.000000
+   argfield.values[4]=0.000000
+   argfield.values[5]=0.000000
+   argfield.values[6]=0.000000
+   argfield.values[7]=0.000000
+   argfield.values[8]=0.000000
+   argfield.values[9]=0.000000
+
+   ******************************
+   Field in in crl_inside after shifting 
+   argfield.dimensions=1 
+   argfield.size[0]=8192 
+   argfield.components=8192 
+      first 10 {Re} values: 
+   argfield.values[0]=0.000000
+   argfield.values[1]=0.000000
+   argfield.values[2]=-0.000000
+   argfield.values[3]=-0.000000
+   argfield.values[4]=0.000000
+   argfield.values[5]=0.000000
+   argfield.values[6]=0.000000
+   argfield.values[7]=0.000000
+   argfield.values[8]=-0.000000
+   argfield.values[9]=0.000000
+
+Parameter Settings
+===========================
+
+X-Ray Settings
+---------------------------
+energy:           12.40 keV
+wavelength:      1.0000 Å
+wavenumber:        6.28 Å⁻¹
+
+Source Settings
+---------------------------
+distance:       1000.00 m
+
+CRL Device Settings
+---------------------------
+focal length:      1.00 m
+aperture:          1.00 mm
+separation:       10.00 µm
+offset:            0.00 µm
+deltafactor:       3.53 µm
+radius R:         22.18 µm
+number/lenses:     1
+
+Detector Settings
+---------------------------
+distance:        100.00 m
+number/pixels:  8192
+width:           0.0819 m
+pixel size:       10.00 µm
+
+
+
+NEW STEP:  current state=0 , tag=-1 
+Call Fourier propagation... 
+CRL to focus propagation N=8192 delta=0.122070μ deltaf=1000.000000 
+distance for propagation 0 was 100.000000 
+propagation successfully done. 
