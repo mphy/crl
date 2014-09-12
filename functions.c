@@ -11,7 +11,7 @@ int read_field_from_file(struct field* field, const char* fname)
     int i = 0;
     int n;
     double Re,Im,y;
-    double val;				//Value of intensity or phase
+    double val, phval;				//Value of intensity or phase
     FILE* f = fopen(fname, "r");
 
     if (field == NULL)
@@ -53,7 +53,7 @@ int read_field_from_file(struct field* field, const char* fname)
 
     /* read values from FILE f, set n */ 
     n=0;
-    while (fscanf(f, "%lf %lf %lf %lf \n", &y, &Re, &Im, &val )!= EOF ){  /* get components */    
+    while (fscanf(f, "%lf %lf %lf %lf %lf \n", &y, &Re, &Im, &val, &phval )!= EOF ){  /* get components */    
     n++;
     }
     rewind(f);		//bring back to beginning to start the proper reading
@@ -63,7 +63,7 @@ int read_field_from_file(struct field* field, const char* fname)
     field->values = malloc(n*sizeof(complex double));
 
     for (i=0; i<n; i++){ /* loop through input-reading */    
-    fscanf(f, "%lf %lf %lf %lf \n", &y, &Re, &Im, &val);  
+    fscanf(f, "%lf %lf %lf %lf %lf \n", &y, &Re, &Im, &val, &phval);  
     field->values[i]=Re+I*Im;
     }
 
@@ -78,6 +78,7 @@ int write_field_to_file(struct field* field, const char* fname, double L)
     int n=field->components;
     int i;
     FILE* f = fopen(fname, "w");
+    double A;
 
     if (field == NULL)
     {
@@ -126,7 +127,11 @@ int write_field_to_file(struct field* field, const char* fname, double L)
 (done)     * write field to FILE* f
      */
     for (i=0;i<n;i++){
-      if (print_intens) fprintf(f, "%f %f %f %f \n", (-0.5+i*1./n)*L, creal(field->values[i]), cimag(field->values[i]), cabs(field->values[i]));
+      A=cabs(field->values[i]);
+      //intensity/amplitude
+      if (print_intens) fprintf(f, "%f %f %f %f %f \n", (-0.5+i*1./n)*L, creal(field->values[i]), cimag(field->values[i]), A*A, carg(field->values[i])); //A*A
+
+      //phase
       else fprintf(f, "%f %f %f %f \n", (-0.5+i*1./n)*L, creal(field->values[i]), cimag(field->values[i]), carg(field->values[i])); 
     }
 
@@ -147,6 +152,10 @@ double delta = *deltaref;
 int i,j;
 bool delta_is_set=false;
 bool delta_reached_max=false;
+
+printf("####################\n");
+printf("Delta-N optimization\n");
+printf("N=%d delta=%8.2f µm\n",N, delta*1e6);
 
 while (!delta_is_set){
    j=0;
@@ -171,8 +180,12 @@ while (!delta_is_set){
       ///////////////////////////////////////////////////////////////////////////////////////////////////
 	  
       if(phdif<(0.1*M_PI)){
-      delta=delta+deltastep;
-      delta_reached_max=false; 		//keep iterating
+/*      delta=delta+deltastep;						AVOID APPLYING CHANGES (CONFLICT WITH PAD)
+printf("add N=%d delta=%8.2f µm\n",N, delta*1e6);
+      delta_reached_max=false; 		//keep iterating*/
+delta_reached_max=true;
+delta_is_set=true;
+printf("WARNING: Optimize_delta changes not applied, delta<delta_max phdif<0.1pi\n");
       j++;		     		//suitable delta must have j!=0
       } 
 
@@ -186,6 +199,7 @@ while (!delta_is_set){
       N=2*N;
       delta=L/N;
       delta_reached_max=true;
+printf("WARNING: WRONG N VALUES\n");
       }	  
    }
 }
@@ -201,8 +215,31 @@ return true;
 double getPhase(double wvl, double dy, double dz){
   double r=sqrt(dy*dy+dz*dz);				//distance
   double opd=r-dz;					//optical path difference
+//printf("getPhase opd=%1.6fA ph=%e ph(2π)=%1.6f \n", opd*1.0e10, opd/wvl*2.*M_PI, fmod(opd*2.*M_PI/wvl,2*M_PI));
   return fmod(opd*2.*M_PI/wvl,2*M_PI);			//might have problems if long int is not used
 }
+
+int pad_field(struct field* arg){
+int ret=0;
+int i;
+int N=arg->components;
+
+for (i=0;i<N/4;i++){
+arg->values[i]=0.;
+}
+for (i=3*N/4;i<N;i++){
+arg->values[i]=0.;
+}
+return ret;
+}
+
+double getPhase_A(double wvl_A, double dy, double dz){
+  double r=sqrt(dy*dy+dz*dz);				//distance
+  double opd_A=(r-dz)*1.0e10;					//optical path difference
+printf("getPhase_A opd=%1.6fA ph=%e ph(2π)=%1.6f \n", opd_A, opd_A/wvl_A*2.*M_PI, fmod(opd_A/wvl_A*2.*M_PI,2*M_PI));
+  return fmod(opd_A/wvl_A*2.*M_PI,2*M_PI);			//might have problems if long int is not used
+}
+
 
 /*int get_field(struct field* field, const char* fnameread){
 int ret=0;

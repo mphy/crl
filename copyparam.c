@@ -20,7 +20,7 @@ int print_parameters(struct parameters* para, FILE* f)
     fprintf(f, "X-Ray Settings\n");
     fprintf(f, "---------------------------\n");
     fprintf(f, "energy:        %8.2f keV\n", para->xray.energy);
-    fprintf(f, "wavelength:    %8.2f Å\n",   para->xray.wavelength*1e10);
+    fprintf(f, "wavelength:    %8.4f Å\n",   para->xray.wavelength*1e10);
     fprintf(f, "wavenumber:    %8.2f Å⁻¹\n", para->xray.wavenumber*1e-10);
     fprintf(f, "\n");
 
@@ -44,8 +44,13 @@ int print_parameters(struct parameters* para, FILE* f)
     fprintf(f, "---------------------------\n");
     fprintf(f, "distance:      %8.2f m\n",   para->detector.distance);
     fprintf(f, "number/pixels: %5d\n",       para->detector.number);
-    fprintf(f, "width:         %8.2f µm\n",  para->detector.width*1e6);
-    fprintf(f, "pixel size:    %8.2f nm\n",  para->detector.width/para->detector.number*1e9);
+    fprintf(f, "width:         %8.4f m\n",  para->detector.width);
+    fprintf(f, "pixel size:    %8.2f µm\n",  para->detector.width/para->detector.number*1e6);
+    fprintf(f, "Airy spot r=1.22*wvl*2*z/L:    %8.2f µm\n",  1.22*para->xray.wavelength*para->detector.distance*2./para->crl.aperture*1e6);
+    fprintf(f, "Airy spot r=1.22*wvl*z/L:    %8.2f µm\n",  1.22*para->xray.wavelength*para->detector.distance/para->crl.aperture*1e6);
+//    fprintf(f, "number/pixels: to be set by field prop\n");
+//    fprintf(f, "width: to be set by field prop\n");
+//    fprintf(f, "pixel size: to be set by field prop\n");
     fprintf(f, "\n");
 
     return 0;
@@ -202,9 +207,10 @@ printf("   Field in %s \n", message);
 printf("   argfield.dimensions=%d \n", argfield->dimensions);
 printf("   argfield.size[0]=%d \n", argfield->size[0]);
 printf("   argfield.components=%d \n", argfield->components);
-printf("      first 10 {Re} values: \n");
+printf("      first 10 {Re} {Im} values: \n");
 for(i=0;i<10;i++){
-printf("   argfield.values[%d]=%f\n",i,creal(argfield->values[i]));
+printf("   argfield.values[%d]=%f,%f",i,creal(argfield->values[i]), cimag(argfield->values[i]));
+printf("   \t %1.2f*exp(%1.4fi)\n",cabs(argfield->values[i]), carg(argfield->values[i]));
 }
 printf("\n");
 return ret;

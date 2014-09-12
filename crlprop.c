@@ -45,10 +45,10 @@ int main(int argc, const char* argv[])
     parameters.crl.R		  =  f_m*2.*M_PI*parameters.crl.deltafactor;
 
     parameters.detector.distance  = distance2_m;// (40/39 is q for s=40 and f=1);
-    parameters.detector.number    = 1000;
-    parameters.detector.width     =  100e-6;
+    parameters.detector.number    = 1;		//to be defined by field propagation
+    parameters.detector.width     = 1;		//to be defined by field propagation
     parameters.detector.intensity = malloc(parameters.detector.number * sizeof(double)); 
-    print_parameters(&parameters, stdout);
+//    print_parameters(&parameters, stdout);
 
 
     /* If noread then copy parameters to s2c and generate field*/
@@ -56,6 +56,9 @@ int main(int argc, const char* argv[])
     copy_xray(&parameters.xray,   &s2c.xray);
     copy_source(&parameters.source, &s2c.source);
     source_to_crl(&s2c, parameters.crl.aperture);
+//pad_field(s2c.field);
+write_field_to_file(s2c.field, "entrance_plane.txt", parameters.crl.aperture);
+//PAD
     }			
 
     /* copy parameters to insidecrl structure*/
@@ -67,7 +70,7 @@ int main(int argc, const char* argv[])
     copy_crl(&parameters.crl, &c2f.crl);
     copy_detector(&parameters.detector,&c2f.detector); 
 
-    //Pre-process: Create/read field and allocate memory
+    //Pre-process: Create/read field and allocate memory. Starting point will be after the lens
     //if field is coming from entrance_plane (both generated or read) allocate and execute PREVIOUS phase-shifting 
     if (tag>0){
 	sprintf(fnameread,"crl_plane");
@@ -97,6 +100,10 @@ int main(int argc, const char* argv[])
         crl_inside(&insidecrl, fnamewrite);
 	} 
 
+    //Once N is set, get detector parameters
+    parameters.detector.number=insidecrl.field->components;
+    parameters.detector.width=parameters.detector.number*c2f.xray.wavelength*c2f.detector.distance/parameters.crl.aperture;
+    print_parameters(&parameters, stdout);
 
     // Start lens loop: while current state (lens) has not reached total lens amount. (phshift) + /PROP+(PHSHIFT)/
     //										      (previous) +/LOOP+(post)/
@@ -115,16 +122,21 @@ int main(int argc, const char* argv[])
 	       copy_field(insidecrl.field, c2f.field);
 
 
- 	   //perform fourier propagation: from CRL to CRL or Detector (different methods)
+//RUN 	   //perform fourier propagation: from CRL to CRL or Detector (different methods)
 	   printf("Call Fourier propagation... \n");
    	   if (current==(lenses-1)){
 	   distance=parameters.detector.distance;
            fprintf(stderr, "warning: detector members are not used.\n");
+//           get_spherical(&c2f, tag, distance);
+//pad_field(c2f.field);
            crl_to_focus(&c2f, tag, distance);
+//	   ray_addition(&c2f, tag, distance);
 	   }
 	   else{
            distance=parameters.crl.separation;  
-           crl_to_fourier(&c2f, tag, distance);}
+           crl_to_fourier(&c2f, tag, distance);
+	   }
+	  
 
     	   printf("distance for propagation %d was %f \n", current, distance);
 	   printf("propagation successfully done. \n");
@@ -138,7 +150,6 @@ int main(int argc, const char* argv[])
 	   }
 
 	   current=current+1;
-	   //if (current!=0) copy_field(c2f.field, insidecrl.field);
       }
       write_field_to_file(c2f.field, "det_plane.txt", parameters.detector.width);
 
@@ -184,6 +195,9 @@ int source_to_crl(struct s2c* arg, double L)
 
   /*Delta-N loop, max phase difference - Sets N and delta*/
   optimizeDelta(&N, &delta, L, wvl, dz, posy);
+printf("N=%d  delta=%1.6fμ \n", N, delta*1e6);
+printf("Press 'Enter' to continue: ... "); while ( getchar() != '\n') ; 
+
  
     u = malloc(N*sizeof(complex double)); //dim 1
     if (u == NULL)
@@ -199,6 +213,7 @@ int source_to_crl(struct s2c* arg, double L)
     {
         dy=-0.5*L+i*delta+posy;
 	ph=getPhase(wvl,dy,dz);
+//	ph=getPhase_A(wvl*1.0e10,dy,dz);
     Re=A*cos(ph);
     Im=A*sin(ph);
     u[i]=Re+I*Im;    
@@ -387,14 +402,14 @@ printf("CRL to CRL propagation N=%d delta=%fμ deltaf=%f \n", N, delta*1e6, delt
 	in[i]=quadratic*field.values[i];
     }
 
-    //fftshift
+/*    //previous fftshift
     if (fftshift)
     for (i=0; i<N/2; i++){
     val=in[i];
     in[i]=in[i+N/2];
     in[i+N/2]=val;
     }
-
+*/
     //fftexecute
     fftw_execute(p);
 
@@ -407,8 +422,10 @@ printf("CRL to CRL propagation N=%d delta=%fμ deltaf=%f \n", N, delta*1e6, delt
     }
 
     constphase = cexp(I*distance*2.*M_PI/wvl);
-    scaling = 1./(I*wvl*distance);
-
+    scaling=sqrt(1./(wvl*distance));
+//    scaling = 1./(I*wvl*distance);
+//    scaling = 1.;
+//    scaling = cpow(1./(I*wvl*distance), 0.5);
 
     //apply quadratic phase (y2), scaling and constant phase
   for (i=0; i<n; i++)
@@ -432,7 +449,7 @@ cleanup:
     return ret;
 }
 
-/* propagate field from CRL using Fourier Transform (to crl!) */
+/* propagate field from CRL using Fourier Transform (to plane!) */
 //33333333333333333333333333333333333333333333333333333333333333333333333333
 int crl_to_focus(struct c2f* arg, int tag, double distance){
     int ret=tag;
@@ -440,7 +457,8 @@ int crl_to_focus(struct c2f* arg, int tag, double distance){
     
     double y;				           //position on detector
     double wvl=arg->xray.wavelength;		   //wavelength
-    double L = arg->detector.width;    		   //size of detector
+//    double L = arg->detector.width;    		   //size of detector
+    double L = arg->crl.aperture;    		   //size of detector
     int i; 					   //counter
     int N=Nmin;					   //Number of points 
     int n = 1;					   //dimensions (components)
@@ -497,14 +515,14 @@ printf("CRL to focus propagation N=%d delta=%fμ deltaf=%f \n", N, delta*1e6, de
 	in[i]=quadratic*field.values[i];
     }
 
-    //fftshift
+/*    //previous fftshift
     if (fftshift)
     for (i=0; i<N/2; i++){
     val=in[i];
     in[i]=in[i+N/2];
     in[i+N/2]=val;
     }
-
+*/
     //fftexecute
     fftw_execute(p);
 
@@ -517,10 +535,14 @@ printf("CRL to focus propagation N=%d delta=%fμ deltaf=%f \n", N, delta*1e6, de
     }
 
     constphase = cexp(I*distance*2.*M_PI/wvl);
-    scaling = 1./(I*wvl*distance);
+      scaling=sqrt(1./(wvl*distance));
+//    scaling = 1./(I*wvl*distance);
+//    scaling = 1.;
+//    scaling = cpow(1./(I*wvl*distance), 0.5);
 
 
-    //apply quadratic phase (y2), scaling and constant phase
+
+  //apply quadratic phase (y2), scaling and constant phase
   for (i=0; i<n; i++)
     {
         y=(-0.5*N+i)*deltaf*wvl*distance;
@@ -542,3 +564,109 @@ cleanup:
     return ret;
 }
 
+
+
+
+//ray addition
+int ray_addition(struct c2f* arg, int tag, double dz){
+int ret=tag;
+double wvl=arg->xray.wavelength;	   //wavelength
+int i,j; 				   //counter
+int N=Nmin;				   //Number of points
+double ph;				   
+double A;
+//double L = arg->detector.width;		   //size of detector
+//double delta;
+//double deltaf;
+double* y1;
+double y;
+double d;
+
+
+    struct field field;
+    field.size=NULL;
+    field.values=NULL;
+    fprintf(stderr, "warning: using %s.\n", __FUNCTION__);
+
+     field.size = malloc(arg->field->dimensions*sizeof(int));
+     field.values = malloc((arg->field->components)*sizeof(complex double)); 
+     copy_field(arg->field, &field);
+
+show_field(&field, "in ray_add before changing");
+
+     N=field.components;
+//     delta=L/N;
+//     deltaf=1./(delta*N);
+     
+
+	y1=malloc(N*sizeof(double));
+
+	for (i=0;i<N;i++){
+	  y1[i]=(-0.5*N+i)*(arg->crl.aperture)/N;
+	  }
+	
+	for (j=0;j<N;j++){
+	  A=cabs(arg->field->values[j]);
+	  for (i=0;i<N;i++){
+	     y=(-0.5*N+i)*(arg->detector.width)/N;
+	     d=sqrt((y1[j]-y)*(y1[j]-y)+dz*dz)-dz;
+
+ph=getPhase(wvl,fabs(y1[j]-y),dz)+d*0.;
+
+//Check
+if ((j==333)&&(i==200)) printf("A1=%f A2=%f yj=%f y=%f d=%f \n", cabs(field.values[i]),A,y1[j],y,d);
+if ((j==333)&&(i==200)) printf("sum %f,%f %f,%f \n", creal(field.values[i]), cimag(field.values[i]), creal(A*cexp(I*ph)), cimag(A*cexp(I*ph)));
+
+//ADDITION
+     field.values[i]=field.values[i]+A*cexp(I*ph);  //no weight
+//     field.values[i]=field.values[i]+A/d*cexp(I*ph);  //weight by distance
+//     field.values[i]=field.values[i]*A*cexp(I*ph);  //add phase (product)
+
+//Check
+if ((j==333)&&(i==200)) printf("sum %f,%f \n", creal(field.values[i]), cimag(field.values[i]));
+		     }
+		   }
+		      copy_field(&field, arg->field);
+
+show_field(arg->field, "in arg ray_add after changing");
+
+if (field.size)   free(field.size);   field.size=NULL;
+if (field.values) free(field.values); field.values=NULL;
+free(y1);
+return ret;
+}
+
+
+
+
+//get spherical
+int get_spherical(struct c2f* arg, int tag, double dz){
+int ret=tag;
+int i;
+double wvl=arg->xray.wavelength;	   //wavelength
+double N=arg->field->components;
+//double dz=arg->detector.distance;
+double y;
+double d;
+    fprintf(stderr, "warning: using %s.\n", __FUNCTION__);
+
+    struct field field;
+    field.size=NULL;
+    field.values=NULL;
+
+     field.size = malloc(arg->field->dimensions*sizeof(int));
+     field.values = malloc((arg->field->components)*sizeof(complex double)); 
+     copy_field(arg->field, &field);
+for (i=0;i<N;i++){
+y=(-0.5*N+i)*(arg->crl.aperture)/N;
+d=sqrt(y*y+dz*dz);
+field.values[i]=cexp(I*fmod(d*2.*M_PI/wvl,2*M_PI));
+//field.values[i]=2.; //trial
+}
+write_field_to_file(&field, "spherical.txt", arg->crl.aperture);
+
+copy_field(&field, arg->field);
+if (field.size)   free(field.size);   field.size=NULL;
+if (field.values) free(field.values); field.values=NULL;
+return ret;
+}
