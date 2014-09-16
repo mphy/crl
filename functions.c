@@ -180,12 +180,8 @@ while (!delta_is_set){
       ///////////////////////////////////////////////////////////////////////////////////////////////////
 	  
       if(phdif<(0.1*M_PI)){
-/*      delta=delta+deltastep;						AVOID APPLYING CHANGES (CONFLICT WITH PAD)
-printf("add N=%d delta=%8.2f µm\n",N, delta*1e6);
-      delta_reached_max=false; 		//keep iterating*/
-delta_reached_max=true;
-delta_is_set=true;
-printf("WARNING: Optimize_delta changes not applied, delta<delta_max phdif<0.1pi\n");
+      delta=delta+deltastep;				
+      delta_reached_max=false; 		//keep iterating
       j++;		     		//suitable delta must have j!=0
       } 
 
@@ -199,7 +195,7 @@ printf("WARNING: Optimize_delta changes not applied, delta<delta_max phdif<0.1pi
       N=2*N;
       delta=L/N;
       delta_reached_max=true;
-printf("WARNING: WRONG N VALUES\n");
+
       }	  
    }
 }

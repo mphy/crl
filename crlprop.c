@@ -103,17 +103,15 @@ write_field_to_file(s2c.field, "entrance_plane.txt", parameters.crl.aperture);
     //Once N is set, get detector parameters
     parameters.detector.number=insidecrl.field->components;
     parameters.detector.width=parameters.detector.number*c2f.xray.wavelength*c2f.detector.distance/parameters.crl.aperture;
+    copy_detector(&parameters.detector,&c2f.detector); 
     print_parameters(&parameters, stdout);
 
     // Start lens loop: while current state (lens) has not reached total lens amount. (phshift) + /PROP+(PHSHIFT)/
     //										      (previous) +/LOOP+(post)/
 	while(current!=lenses){
-	   
-	   
 
 	   printf("\n\nNEW STEP:  current state=%d , tag=%d \n", current, tag);
 
-	
 	       // get field from previous steps, allocate if first time
 	       if (current==0){
 	           c2f.field->size = malloc(insidecrl.field->dimensions*sizeof(int));
@@ -123,7 +121,7 @@ write_field_to_file(s2c.field, "entrance_plane.txt", parameters.crl.aperture);
 
 
 //RUN 	   //perform fourier propagation: from CRL to CRL or Detector (different methods)
-	   printf("Call Fourier propagation... \n");
+	   printf("Call propagation... \n");
    	   if (current==(lenses-1)){
 	   distance=parameters.detector.distance;
            fprintf(stderr, "warning: detector members are not used.\n");
@@ -194,10 +192,15 @@ int source_to_crl(struct s2c* arg, double L)
 
 
   /*Delta-N loop, max phase difference - Sets N and delta*/
-  optimizeDelta(&N, &delta, L, wvl, dz, posy);
-printf("N=%d  delta=%1.6fμ \n", N, delta*1e6);
+  //optimizeDelta(&N, &delta, L, wvl, dz, posy);
+  N=Nmin; delta=L/N;
+  double phdif=fabs(getPhase(wvl,delta*(N/2),dz)-getPhase(wvl,delta*(N/2-1),dz));
+  phdif=(phdif<(2.*M_PI-phdif)) ? phdif : 2.*M_PI-phdif; 
+  if (phdif>=0.1*M_PI) fprintf(stderr, "warning: Wrong N, delta values phdif=%f \n", phdif);
+      
+printf("N=%d  delta=%1.6fμ 	Manually set\n", N, delta*1e6);
 printf("Press 'Enter' to continue: ... "); while ( getchar() != '\n') ; 
-
+   
  
     u = malloc(N*sizeof(complex double)); //dim 1
     if (u == NULL)
@@ -207,13 +210,15 @@ printf("Press 'Enter' to continue: ... "); while ( getchar() != '\n') ;
 	goto cleanup;
     }
 
-    /**/
-    A=1;
+
+	//Gaussian Amplitude
+	double sigma=L/3./2.;
     for (i=0;i<N;i++)
     {
         dy=-0.5*L+i*delta+posy;
 	ph=getPhase(wvl,dy,dz);
 //	ph=getPhase_A(wvl*1.0e10,dy,dz);
+    A=exp(-dy*dy/2./sigma/sigma);
     Re=A*cos(ph);
     Im=A*sin(ph);
     u[i]=Re+I*Im;    
@@ -225,7 +230,6 @@ printf("Press 'Enter' to continue: ... "); while ( getchar() != '\n') ;
 
     //Start allocation for s2c
     arg->field->size = malloc(field.dimensions*sizeof(int));
-
 
 
     /* calculate total number of points in all dimensions */
@@ -455,10 +459,9 @@ int crl_to_focus(struct c2f* arg, int tag, double distance){
     int ret=tag;
 
     
-    double y;				           //position on detector
+    double y;				           //position on lens/detector
     double wvl=arg->xray.wavelength;		   //wavelength
-//    double L = arg->detector.width;    		   //size of detector
-    double L = arg->crl.aperture;    		   //size of detector
+    double L = arg->crl.aperture;    		   //size of lens
     int i; 					   //counter
     int N=Nmin;					   //Number of points 
     int n = 1;					   //dimensions (components)
@@ -565,8 +568,6 @@ cleanup:
 }
 
 
-
-
 //ray addition
 int ray_addition(struct c2f* arg, int tag, double dz){
 int ret=tag;
@@ -575,9 +576,6 @@ int i,j; 				   //counter
 int N=Nmin;				   //Number of points
 double ph;				   
 double A;
-//double L = arg->detector.width;		   //size of detector
-//double delta;
-//double deltaf;
 double* y1;
 double y;
 double d;
@@ -591,14 +589,12 @@ double d;
      field.size = malloc(arg->field->dimensions*sizeof(int));
      field.values = malloc((arg->field->components)*sizeof(complex double)); 
      copy_field(arg->field, &field);
-
+write_field_to_file(&field, "ra1.txt", arg->crl.aperture);
+printf("ray_add det.width=%fm \n ", (arg->detector.width));
 show_field(&field, "in ray_add before changing");
 
-     N=field.components;
-//     delta=L/N;
-//     deltaf=1./(delta*N);
-     
-
+     N=field.components;	//     delta=L/N;     //     deltaf=1./(delta*N);
+  
 	y1=malloc(N*sizeof(double));
 
 	for (i=0;i<N;i++){
@@ -606,7 +602,7 @@ show_field(&field, "in ray_add before changing");
 	  }
 	
 	for (j=0;j<N;j++){
-	  A=cabs(arg->field->values[j]);
+	  A=cabs(arg->field->values[j]); 
 	  for (i=0;i<N;i++){
 	     y=(-0.5*N+i)*(arg->detector.width)/N;
 	     d=sqrt((y1[j]-y)*(y1[j]-y)+dz*dz)-dz;
@@ -645,9 +641,9 @@ int ret=tag;
 int i;
 double wvl=arg->xray.wavelength;	   //wavelength
 double N=arg->field->components;
-//double dz=arg->detector.distance;
 double y;
 double d;
+double A;
     fprintf(stderr, "warning: using %s.\n", __FUNCTION__);
 
     struct field field;
@@ -657,11 +653,18 @@ double d;
      field.size = malloc(arg->field->dimensions*sizeof(int));
      field.values = malloc((arg->field->components)*sizeof(complex double)); 
      copy_field(arg->field, &field);
+
+	//Gaussian Amplitude
+	double sigma=arg->crl.aperture/3./2.;
 for (i=0;i<N;i++){
 y=(-0.5*N+i)*(arg->crl.aperture)/N;
 d=sqrt(y*y+dz*dz);
-field.values[i]=cexp(I*fmod(d*2.*M_PI/wvl,2*M_PI));
-//field.values[i]=2.; //trial
+	A=exp(-y*y/2./sigma/sigma);
+
+//field.values[i]=A*cexp(I*((d-dz)*2.*M_PI/wvl));
+field.values[i]=A*cexp(I*fmod((d-dz)*2.*M_PI/wvl,2.*M_PI));
+//printf("%f %1.13f %1.13f \n", y, fmod((d-dz)*2.*M_PI/wvl, fmod((d)*2.*M_PI/wvl,2.*M_PI));
+//if (i%100==0){printf("Press 'Enter' to continue: ... "); while ( getchar() != '\n');}  
 }
 write_field_to_file(&field, "spherical.txt", arg->crl.aperture);
 

@@ -13,6 +13,7 @@ int print_parameters(struct parameters* para, FILE* f)
     if (f==NULL)
 	f = stdout;
 
+
     fprintf(f, "Parameter Settings\n");
     fprintf(f, "===========================\n");
     fprintf(f, "\n");
@@ -51,6 +52,12 @@ int print_parameters(struct parameters* para, FILE* f)
 //    fprintf(f, "number/pixels: to be set by field prop\n");
 //    fprintf(f, "width: to be set by field prop\n");
 //    fprintf(f, "pixel size: to be set by field prop\n");
+    fprintf(f, "\n");
+
+    fprintf(f, "Simulation N, delta \n");
+    fprintf(f, "---------------------------\n");
+    fprintf(f, "N defined(header): %5d\n",       Nmin);
+    fprintf(f, "delta=%1.6fμm       \n",  para->crl.aperture/Nmin*1.e6);
     fprintf(f, "\n");
 
     return 0;
