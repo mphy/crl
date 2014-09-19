@@ -597,6 +597,10 @@ complex double val;			   //complex value to add intensities
      N=field.components;	//     delta=L/N;     //     deltaf=1./(delta*N);
 
 
+
+printf("set grid;\n");  
+printf("set xrange[%f:%f];\n",-w/2.,w/2.);  
+printf("set yrange[0:3e6];\n");  
 	for (j=0;j<pix;j++){
 	val=0.;
 	y2=(-0.5*pix+j)*w/pix;
@@ -607,6 +611,9 @@ complex double val;			   //complex value to add intensities
 	        ph=getPhase(wvl,(y2-y),dz);
                 //ADDITION
                 val=val+A*cexp(I*ph); 
+ double l=w/pix;
+if ((j%100==0)&&(i%100==0)) printf("set arrow from %f,%f to %f,%f;\n", y2,cabs(val)*cabs(val),y2+l,cabs(val)*cabs(val)+l);
+if ((j%100==0)&&(i%100==0)) printf("plot './int.txt' u 1:2 w l;\n");  
 
 		}//loop on lens points
          arg->detector.intensity[j]=cabs(val)*cabs(val);
@@ -615,7 +622,7 @@ complex double val;			   //complex value to add intensities
          }//loop on detector pix
 
 copy_field(&field, arg->field);
-write_intensity_file(arg->detector.intensity, "int.txt", pix, w);
+//write_intensity_file(arg->detector.intensity, "int.txt", pix, w);
 
 if (field.size)   free(field.size);   field.size=NULL;
 if (field.values) free(field.values); field.values=NULL;
